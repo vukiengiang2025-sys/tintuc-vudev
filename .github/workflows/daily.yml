@@ -1,0 +1,66 @@
+
+name: Daily AI News Digest
+
+on:
+  schedule:
+    - cron: "0 7 * * *"
+      timezone: "Asia/Ho_Chi_Minh"
+
+  workflow_dispatch:
+    inputs:
+      force_send:
+        description: "Gửi lại kể cả khi hôm nay đã gửi"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: daily-news-digest
+  cancel-in-progress: false
+
+jobs:
+  digest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Collect, summarize and send
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_MODEL: ${{ vars.HF_MODEL }}
+          GITHUB_TOKEN: ${{ github.token }}
+          FORCE_SEND: ${{ inputs.force_send }}
+        run: python news_digest.py
+
+      - name: Save sent state
+        if: success()
+        run: |
+          if ! git diff --quiet -- data/sent.json; then
+            git config user.name "github-actions[bot]"
+            git config user.email \
+              "41898282+github-actions[bot]@users.noreply.github.com"
+            git add data/sent.json
+            git commit -m "chore: update daily digest state"
+            git push
+          fi
+          
